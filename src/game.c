@@ -24,10 +24,33 @@
 /* ── Configuration ────────────────────────────────────────────────────── */
 
 #define GAME_WIDTH   60
-#define GAME_HEIGHT  22
+#define GAME_HEIGHT  24
 #define BASE_DELAY   120000   /* microseconds (120ms) */
 #define MIN_DELAY    40000    /* microseconds (40ms)  */
 #define SPEED_STEP   2000     /* delay reduction per point */
+
+/*
+ * Screen layout (total height = GAME_HEIGHT + 2 = 26 rows):
+ *
+ *   Row 0:        Title bar text
+ *   Row 1:        Top border of play area  +-----------+
+ *   Row 2..H-1:   Playable area            |           |
+ *   Row H:        Bottom border            +-----------+
+ *   Row H+1:      HUD / controls text
+ *
+ *   GAME_HEIGHT = 24, so:
+ *     Play area border: rows 1 to 24  (box at y=1, h=GAME_HEIGHT)
+ *     Playable cells:   rows 2 to 23  (inside the border)
+ *     Snake/food y:     [2, GAME_HEIGHT-1)  →  [2, 23]
+ *     Snake/food x:     [1, GAME_WIDTH-2]   →  [1, 58]
+ */
+
+#define PLAY_TOP     2                    /* First playable row */
+#define PLAY_BOTTOM  (GAME_HEIGHT - 1)    /* Last playable row  */
+#define PLAY_LEFT    1                    /* First playable col */
+#define PLAY_RIGHT   (GAME_WIDTH - 2)     /* Last playable col  */
+
+#define SCREEN_ROWS  (GAME_HEIGHT + 2)    /* Total screen rows  */
 
 /* ── Snake Segment (Linked List) ──────────────────────────────────────── */
 
@@ -83,8 +106,8 @@ static void spawn_food(void)
 {
     int attempts = 0;
     while (attempts < 1000) {
-        int fx = m_rand_range(1, GAME_WIDTH - 2);
-        int fy = m_rand_range(2, GAME_HEIGHT - 2);
+        int fx = m_rand_range(PLAY_LEFT, PLAY_RIGHT);
+        int fy = m_rand_range(PLAY_TOP, PLAY_BOTTOM);
 
         /* Check if position is occupied by snake */
         int occupied = 0;
@@ -104,9 +127,9 @@ static void spawn_food(void)
         }
         attempts++;
     }
-    /* Fallback: place at a fixed position */
+    /* Fallback */
     game.food_x = GAME_WIDTH / 2;
-    game.food_y = GAME_HEIGHT / 2;
+    game.food_y = (PLAY_TOP + PLAY_BOTTOM) / 2;
 }
 
 /* ── Initialize Game ──────────────────────────────────────────────────── */
@@ -123,7 +146,7 @@ static void init_game(void)
 
     /* Create initial snake (3 segments, moving right) */
     int start_x = GAME_WIDTH / 2;
-    int start_y = GAME_HEIGHT / 2;
+    int start_y = (PLAY_TOP + PLAY_BOTTOM) / 2;
 
     game.head = create_segment(start_x, start_y);
     SnakeSegment *s2 = create_segment(start_x - 1, start_y);
@@ -146,7 +169,13 @@ static void init_game(void)
 
 static void process_input(void)
 {
-    int key = kb_key_pressed();
+    /* Drain input buffer — only keep the last key pressed
+       to prevent input lag from buffered keystrokes */
+    int key = 0;
+    int k;
+    while ((k = kb_key_pressed()) != 0) {
+        key = k;
+    }
     if (key == 0) return;
 
     switch (key) {
@@ -183,9 +212,9 @@ static void update_game(void)
     int new_x = game.head->x + game.dir_x;
     int new_y = game.head->y + game.dir_y;
 
-    /* ── Wall collision ─────────────────────────────────────────── */
-    if (new_x < 1 || new_x >= GAME_WIDTH - 1 ||
-        new_y < 2 || new_y >= GAME_HEIGHT - 1) {
+    /* ── Wall collision (playable area bounds) ──────────────────── */
+    if (new_x < PLAY_LEFT || new_x > PLAY_RIGHT ||
+        new_y < PLAY_TOP  || new_y > PLAY_BOTTOM) {
         game.game_over = 1;
         return;
     }
@@ -232,21 +261,27 @@ static void render_game(void)
 {
     scr_clear_buffer();
 
-    /* ── Title bar ──────────────────────────────────────────────── */
-    scr_draw_box(0, 0, GAME_WIDTH, 2, COLOR_CYAN, BG_BLACK);
-    scr_put_string(2, 0, " MINI SNAKE ", COLOR_GREEN, BG_BLACK);
+    /* ── Title bar (row 0) ─────────────────────────────────────── */
+    scr_put_char(0, 0, '[', COLOR_CYAN, BG_BLACK);
+    scr_put_string(1, 0, " MINI SNAKE ", COLOR_GREEN, BG_BLACK);
+    scr_put_char(13, 0, ']', COLOR_CYAN, BG_BLACK);
 
+    /* Score on the right side of title */
     char score_buf[32];
     char score_str[48];
-    str_copy(score_str, " Score: ", 48);
+    str_copy(score_str, "Score: ", 48);
     str_itoa(game.score, score_buf, 32);
     str_concat(score_str, score_buf, 48);
-    str_concat(score_str, " ", 48);
-    scr_put_string(GAME_WIDTH - str_length(score_str) - 1, 0,
-                   score_str, COLOR_YELLOW, BG_BLACK);
+    int score_x = GAME_WIDTH - str_length(score_str) - 1;
+    scr_put_string(score_x, 0, score_str, COLOR_YELLOW, BG_BLACK);
 
-    /* ── Play area border ───────────────────────────────────────── */
-    scr_draw_box(0, 1, GAME_WIDTH, GAME_HEIGHT - 1, COLOR_WHITE, BG_BLACK);
+    /* Decorative line across title row */
+    for (int x = 14; x < score_x - 1; x++) {
+        scr_put_char(x, 0, '-', COLOR_CYAN, BG_BLACK);
+    }
+
+    /* ── Play area border (row 1 to GAME_HEIGHT) ───────────────── */
+    scr_draw_box(0, 1, GAME_WIDTH, GAME_HEIGHT, COLOR_WHITE, BG_BLACK);
 
     /* ── Food ───────────────────────────────────────────────────── */
     scr_put_char(game.food_x, game.food_y, '*', COLOR_RED, BG_BLACK);
@@ -264,27 +299,52 @@ static void render_game(void)
         seg = seg->next;
     }
 
-    /* ── HUD ────────────────────────────────────────────────────── */
-    scr_put_string(2, GAME_HEIGHT,
-                   "WASD/Arrows: Move | Q: Quit | R: Restart",
+    /* ── HUD (row GAME_HEIGHT + 1) ─────────────────────────────── */
+    scr_put_string(1, GAME_HEIGHT + 1,
+                   "WASD/Arrows: Move | Q: Quit",
                    COLOR_CYAN, BG_BLACK);
+
+    /* Show memory usage on HUD right side */
+    char mem_str[48];
+    char mem_buf[16];
+    str_copy(mem_str, "Mem: ", 48);
+    str_itoa((int)mem_available(), mem_buf, 16);
+    str_concat(mem_str, mem_buf, 48);
+    str_concat(mem_str, "B", 48);
+    scr_put_string(GAME_WIDTH - str_length(mem_str) - 1, GAME_HEIGHT + 1,
+                   mem_str, COLOR_MAGENTA, BG_BLACK);
 
     /* ── Game Over overlay ──────────────────────────────────────── */
     if (game.game_over) {
-        int cx = GAME_WIDTH / 2 - 8;
-        int cy = GAME_HEIGHT / 2 - 1;
+        int box_w = 24;
+        int box_h = 7;
+        int cx = (GAME_WIDTH - box_w) / 2;
+        int cy = (PLAY_TOP + PLAY_BOTTOM - box_h) / 2 + 1;
 
-        scr_draw_box(cx - 2, cy - 1, 22, 5, COLOR_RED, BG_BLACK);
-        scr_put_string(cx, cy, "   GAME OVER!   ", COLOR_RED, BG_BLACK);
+        /* Fill box background */
+        for (int by = cy; by < cy + box_h; by++) {
+            for (int bx = cx; bx < cx + box_w; bx++) {
+                scr_put_char(bx, by, ' ', COLOR_WHITE, BG_BLACK);
+            }
+        }
+
+        scr_draw_box(cx, cy, box_w, box_h, COLOR_RED, BG_BLACK);
+
+        /* Center text inside the box */
+        scr_put_string(cx + 4, cy + 1, "  GAME OVER!  ", COLOR_RED, BG_BLACK);
 
         char final_score[48];
         str_copy(final_score, "  Score: ", 48);
         str_itoa(game.score, score_buf, 32);
         str_concat(final_score, score_buf, 48);
-        str_concat(final_score, "     ", 48);
-        scr_put_string(cx, cy + 1, final_score, COLOR_YELLOW, BG_BLACK);
+        /* Pad to center */
+        int pad = (box_w - 2 - str_length(final_score)) / 2;
+        for (int p = 0; p < pad; p++) {
+            str_concat(final_score, " ", 48);
+        }
+        scr_put_string(cx + 1, cy + 3, final_score, COLOR_YELLOW, BG_BLACK);
 
-        scr_put_string(cx, cy + 2, " R:Restart Q:Quit", COLOR_WHITE, BG_BLACK);
+        scr_put_string(cx + 2, cy + 5, " R:Restart  Q:Quit ", COLOR_WHITE, BG_BLACK);
     }
 
     scr_refresh();
@@ -296,7 +356,7 @@ int main(void)
 {
     /* Initialize systems */
     mem_init(virtual_ram, VIRTUAL_RAM_SIZE);
-    scr_init(GAME_WIDTH, GAME_HEIGHT + 1);
+    scr_init(GAME_WIDTH, SCREEN_ROWS);
     kb_init();
     scr_hide_cursor();
     scr_clear();
