@@ -3,8 +3,12 @@
 *.obj
 
 # Binaries
-mini_game
 mini_os
+mini_os_main
+test_memory
+test_math
+test_string
+test_shell
 test_runner
 
 # Build directory

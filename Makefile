@@ -1,44 +1,38 @@
 # ══════════════════════════════════════════════════════════════════════
 #  Mini OS — Makefile
 #  Freestanding Systems Programming in C
+#
+#  Structure:
+#    main.c     → Entry point (clean bootstrap)
+#    shell.c    → Shell REPL loop and commands
+#    memory.c   → Virtual heap allocator
+#    string.c   → String parser (strlen, strcpy, strcmp, split, itoa)
+#    keyboard.c → Keyboard input handler
+#    screen.c   → Screen output layer (print, clear)
+#    math.c     → Arithmetic engine
 # ══════════════════════════════════════════════════════════════════════
 
-CC       = clang
-CFLAGS   = -Wall -Wextra -Werror -std=c99 -pedantic
-SRCDIR   = src
-INCDIR   = include
-TESTDIR  = tests
+CC = clang
+CFLAGS = -Wall -Wextra -Werror -std=c99
 
-# Source files for the shared libraries
-LIB_SRCS = $(SRCDIR)/memory.c $(SRCDIR)/math.c $(SRCDIR)/string.c \
-           $(SRCDIR)/screen.c $(SRCDIR)/keyboard.c
+SRC = src/main.c src/shell.c src/memory.c src/math.c src/string.c src/screen.c src/keyboard.c
+LIB = src/memory.c src/math.c src/string.c src/screen.c src/keyboard.c
 
-# Object files
-LIB_OBJS = $(LIB_SRCS:.c=.o)
+TARGET = mini_os
 
-# ── Targets ──────────────────────────────────────────────────────────
+.PHONY: all test clean
 
-.PHONY: all game os test clean
+all:
+	$(CC) $(CFLAGS) -o $(TARGET) $(SRC)
 
-all: game os
+# Game (Track A)
+game:
+	$(CC) $(CFLAGS) -o mini_game src/game.c $(LIB)
 
-# Track A: Snake Game
-game: mini_game
-mini_game: $(SRCDIR)/game.c $(LIB_SRCS)
-	$(CC) $(CFLAGS) -o $@ $^
-
-# Track B: Mini OS
-os: mini_os
-mini_os: $(SRCDIR)/os.c $(LIB_SRCS)
-	$(CC) $(CFLAGS) -o $@ $^
-
-# ── Tests ────────────────────────────────────────────────────────────
-
-test: test_memory test_math test_string
+# Tests
+test: test_memory test_math test_string test_shell
 	@echo ""
-	@echo "╔═══════════════════════════════════════════╗"
-	@echo "║       Running All Test Suites             ║"
-	@echo "╚═══════════════════════════════════════════╝"
+	@echo "Running all tests..."
 	@echo ""
 	@./test_memory
 	@echo ""
@@ -46,21 +40,21 @@ test: test_memory test_math test_string
 	@echo ""
 	@./test_string
 	@echo ""
-	@echo "══════════════════════════════════════════"
-	@echo "  All test suites completed."
-	@echo "══════════════════════════════════════════"
+	@./test_shell
+	@echo ""
+	@echo "All tests completed."
 
-test_memory: $(TESTDIR)/test_memory.c $(SRCDIR)/memory.c
+test_memory: tests/test_memory.c src/memory.c
 	$(CC) $(CFLAGS) -o $@ $^
 
-test_math: $(TESTDIR)/test_math.c $(SRCDIR)/math.c
+test_math: tests/test_math.c src/math.c
 	$(CC) $(CFLAGS) -o $@ $^
 
-test_string: $(TESTDIR)/test_string.c $(SRCDIR)/string.c
+test_string: tests/test_string.c src/string.c
 	$(CC) $(CFLAGS) -o $@ $^
 
-# ── Cleanup ──────────────────────────────────────────────────────────
+test_shell: tests/test_shell.c src/memory.c src/math.c src/string.c src/screen.c
+	$(CC) $(CFLAGS) -o $@ $^
 
 clean:
-	rm -f mini_game mini_os test_memory test_math test_string
-	rm -f $(SRCDIR)/*.o
+	rm -f $(TARGET) mini_game test_memory test_math test_string test_shell

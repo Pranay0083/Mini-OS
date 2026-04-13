@@ -236,6 +236,24 @@ void scr_refresh(void)
     first_frame = 0;
 }
 
+/* ── Console Print Wrappers ───────────────────────────────────────────── */
+
+void scr_print(const char *s)
+{
+    if (!s) return;
+    fputs(s, stdout);
+    fflush(stdout);
+}
+
+void scr_println(const char *s)
+{
+    if (s) {
+        fputs(s, stdout);
+    }
+    fputc('\n', stdout);
+    fflush(stdout);
+}
+
 /* ── Cursor Visibility ────────────────────────────────────────────────── */
 
 void scr_hide_cursor(void)

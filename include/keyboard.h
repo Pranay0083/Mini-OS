@@ -1,14 +1,14 @@
-/*
- * keyboard.h — Non-Blocking Input Handler Interface
- *
- * Switches terminal to raw mode for real-time keystroke capture.
- * Dependencies: <termios.h>, <fcntl.h>, <unistd.h>
- */
-
 #ifndef KEYBOARD_H
 #define KEYBOARD_H
 
-/* ── Key Constants ────────────────────────────────────────────────────── */
+/*
+ * keyboard.h — Non-Blocking Input Handler Interface
+ *
+ * Uses raw terminal mode for real-time input handling.
+ * Dependencies: <termios.h>, <fcntl.h>, <unistd.h>
+ */
+
+/* ── Key Constants ───────────────────────────────────────── */
 
 #define KEY_UP        1000
 #define KEY_DOWN      1001
@@ -18,32 +18,18 @@
 #define KEY_ENTER     10
 #define KEY_BACKSPACE 127
 
-/* ── API ──────────────────────────────────────────────────────────────── */
+/* ── API ────────────────────────────────────────────────── */
 
-/**
- * Enter raw mode: disable echo, disable canonical buffering,
- * set stdin to non-blocking. Saves original terminal state.
- * Registers kb_restore() with atexit().
- */
+/* Initialize raw mode input */
 void kb_init(void);
 
-/**
- * Restore original terminal settings (canonical mode, echo).
- */
+/* Restore terminal to original state */
 void kb_restore(void);
 
-/**
- * Non-blocking key read.
- * Returns the key code if a key was pressed, or 0 if no key is available.
- * Handles multi-byte arrow key escape sequences.
- */
+/* Non-blocking key read */
 int kb_key_pressed(void);
 
-/**
- * Blocking line read with character echo.
- * Reads until newline or max_len-1 chars. Handles backspace.
- * Returns the number of characters read.
- */
+/* Blocking line input */
 int kb_read_line(char *buf, int max_len);
 
 #endif /* KEYBOARD_H */
