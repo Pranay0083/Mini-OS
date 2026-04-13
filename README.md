@@ -1,6 +1,6 @@
-# 🖥️ Mini OS — Freestanding Systems Programming in C
+# 🖥️ Mini OS — Freestanding Operating System in C
 
-A comprehensive systems programming capstone project that builds **five core C libraries from scratch** and integrates them into two complete applications — a real-time **Snake game** and a **Mini Operating System** with VFS and shell — all without standard library dependencies for core logic.
+A mini operating system built entirely from scratch in C, demonstrating core OS concepts — **memory management**, **file system**, **I/O abstraction**, **process scheduling**, and a **command shell** — all using **custom-built libraries** with no standard library dependencies for core logic.
 
 ```
 ╔══════════════════════════════════════════════════════╗
@@ -19,32 +19,57 @@ A comprehensive systems programming capstone project that builds **five core C l
 
 ## 📋 Table of Contents
 
-- [Architecture](#architecture)
-- [Libraries](#libraries)
-- [Applications](#applications)
-- [Building](#building)
-- [Running](#running)
-- [Testing](#testing)
-- [Documentation](#documentation)
-- [Project Structure](#project-structure)
+- [Architecture](#-architecture)
+- [Core Pipeline](#-core-pipeline)
+- [Libraries](#-libraries)
+- [Shell Commands](#-shell-commands)
+- [OS Concepts Demonstrated](#-os-concepts-demonstrated)
+- [Building & Running](#-building--running)
+- [Testing](#-testing)
+- [Project Structure](#-project-structure)
+- [Documentation](#-documentation)
 
 ---
 
 ## 🏗️ Architecture
 
-The system follows a four-layer model where each layer depends only on layers below it:
+```
+┌──────────────────────────────────────────────────┐
+│              USER (types commands)                │
+└────────────────────┬─────────────────────────────┘
+                     │
+         ┌───────────▼───────────┐
+         │      keyboard.c       │  INPUT LAYER
+         │    kb_read_line()     │  Raw terminal mode
+         └───────────┬───────────┘
+                     │
+         ┌───────────▼───────────┐
+         │       string.c        │  PARSING ENGINE
+         │     str_split()       │  In-place tokenizer
+         └───────────┬───────────┘
+                     │
+         ┌───────────▼───────────┐
+         │       shell.c         │  COMMAND DISPATCH
+         │   shell_execute()     │  REPL loop + VFS
+         └───────┬───┬───────────┘
+                 │   │
+        ┌────────┘   └────────┐
+        ▼                     ▼
+┌──────────────┐    ┌──────────────┐
+│  memory.c    │    │  screen.c    │
+│  mem_alloc() │    │  scr_print() │  OUTPUT LAYER
+│  mem_free()  │    │  scr_clear() │
+└──────────────┘    └──────────────┘
+```
+
+The system follows a layered model where each layer depends only on layers below it:
 
 ```
 ┌─────────────────────────────────────────────────┐
-│  Layer 4: Applications                          │
-│  ┌──────────────┐  ┌────────────────────────┐   │
-│  │  Snake Game   │  │  Mini OS (VFS + Shell) │   │
-│  └──────────────┘  └────────────────────────┘   │
+│  Layer 3: Application                           │
+│  Shell REPL · VFS · Task Scheduler              │
 ├─────────────────────────────────────────────────┤
-│  Layer 3: Middleware                            │
-│  Framebuffer · VFS · Task Scheduler · Entities  │
-├─────────────────────────────────────────────────┤
-│  Layer 2: Custom Libraries (Engine)             │
+│  Layer 2: Custom Libraries                      │
 │  memory.c · math.c · string.c · screen.c ·     │
 │  keyboard.c                                     │
 ├─────────────────────────────────────────────────┤
@@ -56,109 +81,148 @@ The system follows a four-layer model where each layer depends only on layers be
 
 ---
 
+## 🔄 Core Pipeline
+
+Every command follows this exact flow:
+
+```
+Input → Parse → Execute → Output
+keyboard.c → string.c → shell.c → screen.c
+                           ↓
+                        memory.c (used where needed)
+```
+
+| Step | Library | Function |
+|------|---------|----------|
+| Input | `keyboard.c` | `kb_read_line()` |
+| Parsing | `string.c` | `str_split()` |
+| Cmd Match | `string.c` | `str_compare()` |
+| Memory | `memory.c` | `mem_alloc()` / `mem_free()` |
+| Output | `screen.c` | `scr_print()` / `scr_clear()` |
+
+---
+
 ## 📚 Libraries
 
 ### `memory.c` — Virtual Heap Allocator
-- **First-Fit Free List** algorithm with 64KB Virtual RAM
-- 8-byte aligned allocations: `(size + 7) & ~7`
+- **First-Fit Free List** algorithm over 64KB virtual RAM
+- 8-byte aligned allocations
 - Block splitting when remainder ≥ `MIN_BLOCK_SIZE`
 - Forward coalescing on free to prevent fragmentation
 - Safety: NULL/double-free/bounds/zero-size protection
+- `memmap` command for heap visualization
 
-### `math.c` — Arithmetic Engine
-- Integer operations: `abs`, `min`, `max`, `clamp`, `mod`, `div`, `mul`
-- Spatial helpers: AABB intersection, point-in-rectangle, Manhattan distance
-- Linear Congruential Generator (LCG) for pseudo-random numbers
+### `string.c` — String Parser (No `<string.h>`)
+- Core: `str_length`, `str_copy`, `str_compare`, `str_concat`
+- **⭐ `str_split`** — In-place tokenizer (tokens point inside buffer, no malloc)
+- Numeric: `str_itoa`, `str_atoi` with sign handling
+- Utilities: `str_starts_with`, `str_find`, `str_reverse`
 
-### `string.c` — Parser
-- Bounds-safe: `length`, `copy`, `compare`, `concat`
-- Numeric conversions: `itoa`, `atoi` with sign handling
-- Tokenizer: `str_split` with delimiter collapsing
-- Utilities: `starts_with`, `find`, `reverse`
-
-### `screen.c` — Terminal Renderer
-- ANSI escape code based 2D rendering
-- Double-buffered framebuffer (front + back)
-- **Diff-based refresh**: only transmits changed cells
-- Box drawing, colored text, cursor control
-
-### `keyboard.c` — Input Handler
-- Raw mode terminal via `termios` (no echo, no line buffering)
+### `keyboard.c` — Raw Terminal Input
+- Raw mode via `termios` (no echo, no line buffering)
 - Non-blocking `kb_key_pressed()` via `O_NONBLOCK`
-- Arrow key escape sequence parsing
-- Blocking `kb_read_line()` with backspace and character echo
+- Blocking `kb_read_line()` with:
+  - Instant character echo (flushed per keystroke)
+  - Backspace handling
+  - Enter detection
 - Guaranteed terminal restoration via `atexit()`
 
+### `screen.c` — Output Abstraction
+- `scr_print()` / `scr_println()` — console output wrappers
+- `scr_clear()` — ANSI screen clear
+- Double-buffered framebuffer with diff-based refresh
+- Box drawing, colored text, cursor control
+
+### `math.c` — Arithmetic Engine (No `<math.h>`)
+- Basic: `m_add`, `m_sub`, `m_mul`, `m_div`, `m_mod`, `m_abs`
+- Helpers: `m_min`, `m_max`, `m_clamp`
+- Spatial: AABB intersection, point-in-rect, Manhattan distance
+- PRNG: Linear Congruential Generator with `m_rand()`, `m_rand_range()`
+
 ---
 
-## 🎮 Applications
+## 💻 Shell Commands
 
-### Track A: Snake Game (`mini_game`)
-- Real-time game loop: poll input → update state → render
-- Snake segments dynamically allocated via `mem_alloc`/`mem_free`
-- Wall and self-collision detection via `math.c`
-- Score display via `str_itoa` + framebuffer rendering
-- Difficulty scaling: speed increases as score grows
-- Controls: **WASD** or **Arrow keys** | **Q** to quit | **R** to restart
-
-### Track B: Mini OS (`mini_os`)
-**Virtual File System:**
-- Superblock + Inode table (64 entries)
-- File CRUD: `touch`, `write`, `read`/`cat`, `rm`
-- Directory hierarchy: `mkdir`, `cd`, `ls`
-
-**Shell Commands:**
 | Command | Description |
 |---------|-------------|
-| `help` | Show all commands |
-| `echo <text>` | Print text |
-| `clear` | Clear screen |
-| `ls` | List files |
-| `touch <name>` | Create file |
+| `help` | Show all available commands |
+| `echo <text>` | Print text to console |
+| `clear` | Clear the screen |
+| `ls` | List files in current directory |
+| `touch <name>` | Create empty file |
 | `mkdir <name>` | Create directory |
-| `cd <dir>` | Change directory |
-| `write <name> <text>` | Write to file |
-| `read` / `cat <name>` | Read file |
-| `rm <name>` | Delete file/dir |
-| `memmap` | Heap visualization |
-| `sysinfo` | System info |
+| `cd <dir>` | Change directory (`..` and `/` supported) |
+| `write <name> <text>` | Write content to file |
+| `read` / `cat <name>` | Display file contents |
+| `rm <name>` | Remove file or empty directory |
+| `memmap` | Show heap memory map |
+| `sysinfo` | Display system information |
 | `tasks` | List background tasks |
-| `startcounter` | Start counter task |
-| `kill <id>` | Kill task |
-| `exit` | Shutdown |
-
-**Cooperative Task Scheduler:**
-- Background tasks ticked once per shell iteration
-- Counter task for demonstration
-- Task management: add, list, kill
+| `startcounter` | Start a background counter task |
+| `kill <id>` | Kill a background task |
+| `exit` | Shut down Mini OS |
 
 ---
 
-## 🔨 Building
+## 🧠 OS Concepts Demonstrated
+
+| OS Concept | Implementation | Status |
+|-----------|---------------|--------|
+| **Memory Management** | First-Fit allocator, 64KB heap, alloc/free/split/coalesce | ✅ Done |
+| **File System** | Inode-based VFS with directories, CRUD, parent-child hierarchy | ✅ Done |
+| **I/O Management** | Input (keyboard.c) + Output (screen.c) abstraction layers | ✅ Done |
+| **User Interface** | Shell REPL with 16 commands, colored prompt, error handling | ✅ Done |
+| **Error Handling** | Null checks, bounds validation, unknown cmd, OOM, double-free | ✅ Done |
+| **Halt / Shutdown** | `exit` → graceful shutdown → terminal restore → clean return | ✅ Done |
+| **Process Management** | Cooperative task scheduler (startcounter, tasks, kill) | ✅ Partial |
+
+### Virtual File System
+- **Superblock** — tracks total files, directories, current directory
+- **Inode table** — 64 entries, each with name, size, type, parent index, data pointer
+- **File data** — allocated via `mem_alloc()`, freed via `mem_free()`
+- **Directory hierarchy** — parent-child relationships, `cd ..` traversal
+
+### Cooperative Task Scheduler
+- Background tasks tick once per shell loop iteration
+- `startcounter` — spawns a counter task
+- `tasks` — lists active tasks with IDs
+- `kill <id>` — terminates a task and frees its memory
+
+---
+
+## 🔨 Building & Running
 
 **Prerequisites:** `clang` or `gcc` with C99 support (macOS/Linux)
 
 ```bash
-# Build both applications
-make all
+# Build the OS
+make
 
-# Build only the game
-make game
+# Run Mini OS
+./mini_os
 
-# Build only the OS
-make os
+# Clean build artifacts
+make clean
 ```
 
----
+### Demo Flow
 
-## 🚀 Running
+```
+$ ./mini_os
 
-```bash
-# Play Snake
-./mini_game
-
-# Launch Mini OS
-./mini_os
+mini-os:/$ help
+mini-os:/$ echo hello mini os
+hello mini os
+mini-os:/$ mkdir projects
+mini-os:/$ touch hello.txt
+mini-os:/$ write hello.txt hello world
+mini-os:/$ cat hello.txt
+  hello world
+mini-os:/$ memmap
+mini-os:/$ sysinfo
+mini-os:/$ clear
+mini-os:/$ exit
+  Goodbye!
 ```
 
 ---
@@ -166,69 +230,54 @@ make os
 ## 🧪 Testing
 
 ```bash
-# Run all test suites (memory + math + string)
+# Run all test suites (125 tests)
 make test
 ```
 
-**Test coverage:**
-- `test_memory`: 20 tests — alloc, free, splitting, coalescing, stress (1000 cycles)
-- `test_math`: 28 tests — arithmetic, AABB, distance, PRNG
-- `test_string`: 39 tests — copy, compare, itoa/atoi, split, edge cases
+| Test Suite | Tests | Coverage |
+|-----------|-------|---------|
+| `test_memory.c` | 20 | Alloc, free, splitting, coalescing, stress (1000 cycles), edge cases |
+| `test_math.c` | 28 | All arithmetic ops, AABB, distance, PRNG, clamp |
+| `test_string.c` | 39 | length, copy, compare, split, itoa, atoi, concat, reverse, find |
+| `test_shell.c` | 38 | Full pipeline integration: tokenize → match → execute → output |
 
----
-
-## 📖 Documentation
-
-Comprehensive design documents are in the `/docs` directory:
-
-| Document | Description |
-|----------|-------------|
-| [SRS.md](docs/SRS.md) | Systems Requirement Specification |
-| [Architecture.md](docs/Architecture.md) | Layered architecture with Mermaid diagrams |
-| [MemoryDesign.md](docs/MemoryDesign.md) | First-Fit allocator design |
-| [MathDesign.md](docs/MathDesign.md) | Arithmetic engine design |
-| [StringDesign.md](docs/StringDesign.md) | Parser library design |
-| [ScreenDesign.md](docs/ScreenDesign.md) | ANSI renderer design |
-| [KeyboardDesign.md](docs/KeyboardDesign.md) | Raw mode input design |
-| [TrackA_GameDesign.md](docs/TrackA_GameDesign.md) | Snake game design |
-| [TrackB_OSDesign.md](docs/TrackB_OSDesign.md) | Mini OS design |
-
-All documents include **Mermaid diagrams** for architecture, data flow, algorithms, and state machines.
+**All 125 tests pass with zero warnings under `-Wall -Wextra -Werror -std=c99`.**
 
 ---
 
 ## 📁 Project Structure
 
 ```
-mini-os/
-├── docs/                    # Design documentation (9 docs)
-│   ├── SRS.md
-│   ├── Architecture.md
-│   ├── MemoryDesign.md
-│   ├── MathDesign.md
-│   ├── StringDesign.md
-│   ├── ScreenDesign.md
-│   ├── KeyboardDesign.md
-│   ├── TrackA_GameDesign.md
-│   └── TrackB_OSDesign.md
-├── include/                 # Header files
+Mini-OS/
+├── src/                         # Source files
+│   ├── main.c                   # System bootstrap (entry point)
+│   ├── shell.c                  # Shell REPL + VFS + task scheduler
+│   ├── memory.c                 # Virtual heap allocator
+│   ├── string.c                 # String parser (no <string.h>)
+│   ├── keyboard.c               # Raw terminal input handler
+│   ├── screen.c                 # Screen output abstraction
+│   └── math.c                   # Arithmetic engine
+├── include/                     # Header files
+│   ├── shell.h
 │   ├── memory.h
-│   ├── math.h
 │   ├── string.h
+│   ├── keyboard.h
 │   ├── screen.h
-│   └── keyboard.h
-├── src/                     # Implementation files
-│   ├── memory.c             # Virtual Heap Allocator
-│   ├── math.c               # Arithmetic Engine
-│   ├── string.c             # String Parser
-│   ├── screen.c             # ANSI Terminal Renderer
-│   ├── keyboard.c           # Raw Mode Input Handler
-│   ├── game.c               # Track A: Snake Game
-│   └── os.c                 # Track B: Mini OS
-├── tests/                   # Unit test suites
-│   ├── test_memory.c        # 20 tests
-│   ├── test_math.c          # 28 tests
-│   └── test_string.c        # 39 tests
+│   └── math.h
+├── tests/                       # Unit + integration tests
+│   ├── test_memory.c            # 20 tests
+│   ├── test_math.c              # 28 tests
+│   ├── test_string.c            # 39 tests
+│   └── test_shell.c             # 38 integration tests
+├── docs/                        # Design documents
+│   ├── SRS.md                   # System Requirements Specification
+│   ├── Architecture.md          # Layered architecture
+│   ├── MemoryDesign.md          # Allocator design
+│   ├── MathDesign.md            # Arithmetic engine design
+│   ├── StringDesign.md          # Parser library design
+│   ├── ScreenDesign.md          # Renderer design
+│   ├── KeyboardDesign.md        # Input handler design
+│   └── TrackB_OSDesign.md       # OS design
 ├── Makefile
 ├── .gitignore
 └── README.md
@@ -236,15 +285,32 @@ mini-os/
 
 ---
 
+## 📖 Documentation
+
+Design documents in `/docs`:
+
+| Document | Description |
+|----------|-------------|
+| [SRS.md](docs/SRS.md) | System Requirements Specification |
+| [Architecture.md](docs/Architecture.md) | Layered architecture design |
+| [MemoryDesign.md](docs/MemoryDesign.md) | First-Fit allocator design |
+| [MathDesign.md](docs/MathDesign.md) | Arithmetic engine design |
+| [StringDesign.md](docs/StringDesign.md) | Parser library design |
+| [ScreenDesign.md](docs/ScreenDesign.md) | ANSI renderer design |
+| [KeyboardDesign.md](docs/KeyboardDesign.md) | Raw mode input design |
+| [TrackB_OSDesign.md](docs/TrackB_OSDesign.md) | Mini OS design |
+
+---
+
 ## ⚙️ Constraints
 
 - **No standard library for core logic**: Zero usage of `<string.h>`, `<math.h>`, or standard `malloc`/`free`
-- **Permitted headers only**: `<stdio.h>`, `<stdlib.h>`, `<termios.h>`, `<fcntl.h>`, `<unistd.h>`
-- **C99 compliance**: Compiles with `-Wall -Wextra -Werror -std=c99 -pedantic` (zero warnings)
+- **Custom everything**: All string ops, memory management, and I/O go through custom libraries
+- **C99 compliance**: Compiles with `-Wall -Wextra -Werror -std=c99` (zero warnings)
 - **8-byte alignment**: All heap allocations guaranteed aligned
 
 ---
 
 ## 📜 License
 
-Educational capstone project. MIT License.
+Educational project. MIT License.
