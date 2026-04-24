@@ -9,6 +9,7 @@
  */
 
 #include "../include/screen.h"
+#include "../include/string.h"
 #include <stdio.h>
 
 /* ── Screen Cell ──────────────────────────────────────────────────────── */
@@ -45,21 +46,12 @@ static void wb_str(const char *s)
     }
 }
 
-/* Simple int-to-string for ANSI codes (no string.c dependency) */
+/* Int-to-string for ANSI codes — delegates to string.c str_itoa() */
 static void wb_int(int n)
 {
-    if (n < 0) { wb_char('-'); n = -n; }
-    if (n == 0) { wb_char('0'); return; }
-
     char tmp[12];
-    int len = 0;
-    while (n > 0) {
-        tmp[len++] = '0' + (n % 10);
-        n /= 10;
-    }
-    for (int i = len - 1; i >= 0; i--) {
-        wb_char(tmp[i]);
-    }
+    str_itoa(n, tmp, 12);
+    wb_str(tmp);
 }
 
 static void wb_flush(void)

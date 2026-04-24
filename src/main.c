@@ -25,6 +25,11 @@
 #include "../include/shell.h"
 #include "../include/screen.h"
 
+/* ── Default Boot Configuration ───────────────────────────────────────── */
+
+#define DEFAULT_SCR_WIDTH   80
+#define DEFAULT_SCR_HEIGHT  24
+
 /* ── Virtual RAM (backing store for the heap allocator) ───────────────── */
 
 static char virtual_ram[VIRTUAL_RAM_SIZE];
@@ -42,7 +47,7 @@ int main(void)
     kb_init();
 
     /* ── Step 3: Initialize screen output ──────────────────────────── */
-    scr_init(80, 24);
+    scr_init(DEFAULT_SCR_WIDTH, DEFAULT_SCR_HEIGHT);
 
     /* ── Step 4: Initialize shell subsystem ────────────────────────── */
     shell_init();

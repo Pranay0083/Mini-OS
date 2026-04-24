@@ -83,6 +83,7 @@ int kb_read_line(char *buf, int max_len)
 
     int pos = 0;
 
+    /* Switch to blocking mode */
     int flags = fcntl(STDIN_FILENO, F_GETFL, 0);
     fcntl(STDIN_FILENO, F_SETFL, flags & ~O_NONBLOCK);
 
@@ -90,32 +91,33 @@ int kb_read_line(char *buf, int max_len)
         unsigned char ch;
         if (read(STDIN_FILENO, &ch, 1) <= 0) continue;
 
+        /* ENTER */
         if (ch == '\n' || ch == '\r') {
             buf[pos] = '\0';
-            putchar('\n');
-            fflush(stdout);
+            write(STDOUT_FILENO, "\n", 1);
             break;
         }
 
+        /* BACKSPACE */
         if (ch == KEY_BACKSPACE || ch == 8) {
             if (pos > 0) {
                 pos--;
-                printf("\b \b");
-                fflush(stdout);
+                write(STDOUT_FILENO, "\b \b", 3);
             }
             continue;
         }
 
+        /* Ignore control chars */
         if (ch < 32 && ch != '\t') continue;
 
+        /* Normal character */
         if (pos < max_len - 1) {
             buf[pos++] = (char)ch;
-            putchar(ch);
-            fflush(stdout);
+            write(STDOUT_FILENO, &ch, 1);
         }
     }
 
-    fflush(stdout);
+    /* Restore non-blocking mode */
     fcntl(STDIN_FILENO, F_SETFL, flags);
 
     return pos;

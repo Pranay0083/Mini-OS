@@ -94,17 +94,19 @@ int str_itoa(int num, char *buf, int buf_size)
         return 1;
     }
 
-    /* Handle negative */
+    /* Use unsigned to handle INT_MIN safely (negating INT_MIN overflows signed int) */
+    unsigned int magnitude;
     if (num < 0) {
         is_negative = 1;
-        /* Use unsigned to handle INT_MIN safely */
-        num = -num;
+        magnitude = (unsigned int)(-(num + 1)) + 1u;
+    } else {
+        magnitude = (unsigned int)num;
     }
 
-    /* Extract digits (reversed) */
-    while (num > 0 && i < buf_size - 1) {
-        buf[i++] = '0' + (num % 10);
-        num /= 10;
+    /* Extract digits in reverse order */
+    while (magnitude > 0 && i < buf_size - 1) {
+        buf[i++] = '0' + (magnitude % 10);
+        magnitude /= 10;
     }
 
     /* Add minus sign */
