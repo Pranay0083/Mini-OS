@@ -1,0 +1,153 @@
+\documentclass[conference]{IEEEtran}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{times}
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{listings}
+
+\lstset{
+    language=C,
+    basicstyle=\ttfamily\footnotesize,
+    keywordstyle=\color{blue},
+    stringstyle=\color{red},
+    commentstyle=\color{green!50!black},
+    breaklines=true,
+    captionpos=b,
+    frame=single
+}
+
+\begin{document}
+
+\title{Mini-OS: A Monolithic Operating System Simulator}
+
+\author{
+\IEEEauthorblockN{Yashi Gupta}
+\IEEEauthorblockA{\textit{Rishihood University} \\
+230072}
+\and
+\IEEEauthorblockN{Pranay Vishwakarma}
+\IEEEauthorblockA{\textit{Rishihood University} \\
+230083}
+\and
+\IEEEauthorblockN{Vishesh Rao}
+\IEEEauthorblockA{\textit{Rishihood University} \\
+230129}
+}
+
+\maketitle
+
+\begin{abstract}
+This report details the architecture, design, and implementation of \textbf{Mini-OS}, a lightweight, custom-built operating system simulator written entirely in C. Operating systems bridge the critical gap between user-level software and low-level hardware. Understanding their internal mechanisms typically requires navigating immensely complex, legacy codebases. The Mini-OS project eschews standard C libraries to enforce a deep exploration of low-level subsystem interactions from first principles. Through the implementation of a \textbf{First-Fit Free List} virtual memory allocator, a \textbf{cooperative background task scheduler}, a \textbf{double-buffered ANSI rendering engine}, and an in-memory \textbf{Virtual File System (VFS)}, Mini-OS demonstrates foundational operating system concepts in a clean, monolithic architecture. This paper outlines the methodology adopted to engineer these subsystems optimally, focusing extensively on \textbf{Process Management}, \textbf{Memory Management}, \textbf{File Systems}, \textbf{I/O Management}, and \textbf{Security} mechanisms, including robust error handling and halt sequences. By examining these subsystems, we present a comprehensive framework that maximizes theoretical efficiency within a simulated user-space environment.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Operating Systems, Memory Allocation, Virtual File System, Task Scheduling, Double-Buffering, C Programming
+\end{IEEEkeywords}
+
+\section{Introduction}
+The \textbf{operating system (OS)} serves as the fundamental resource manager of any computational system, handling the delicate orchestration of memory, processing time, input/output peripherals, and persistent storage. Modern operating systems such as Linux, macOS, and Windows represent decades of evolutionary software engineering, making them incredibly robust but notoriously difficult for students and researchers to dissect and comprehend comprehensively.
+
+The primary motivation behind the development of \textbf{Mini-OS} is to construct a cohesive, monolithic-style operating system simulator from the ground up. To maximize the educational and engineering rigor of this project, a strict constraint was placed on the development environment: the complete avoidance of standard C library dependencies (such as \texttt{<string.h>}, \texttt{<math.h>}, and standard memory allocation like \texttt{malloc()}). This constraint demands the custom implementation of core utilities—such as string parsing, arithmetic logic, and spatial calculations—resulting in a robust sandbox for understanding how operating system modules interoperate through strictly defined, custom \textbf{Application Programming Interfaces (APIs)}.
+
+The scope of Mini-OS encompasses several critical OS domains. It requires the instantiation of a deterministic memory manager capable of mitigating fragmentation, a file system capable of virtualizing data streams, a task scheduler simulating concurrency, and hardware-level I/O abstractions that communicate directly with terminal states. This report delineates the optimal methodologies chosen to implement these features, evaluating their performance and architectural soundness.
+
+\section{Methodology}
+The architecture of Mini-OS revolves around modular decomposition within a \textbf{monolithic core}. Each primary OS responsibility is encapsulated in distinct C modules (\texttt{memory.c}, \texttt{vfs.c}, \texttt{scheduler.c}, \texttt{keyboard.c}, \texttt{screen.c}) that expose specific interfaces. These modules are driven by a central \textbf{Read-Eval-Print Loop (REPL)} located in \texttt{shell.c}, which serves as both the command processor and the primary \textbf{User Interface (UI)}.
+
+\subsection{Memory Management}
+Memory management is arguably the most critical subsystem in any operating system, as it dictates the efficiency and stability of all other operations. Mini-OS implements a highly optimized \textbf{First-Fit Free List} algorithm operating over a 64KB static byte array, which simulates physical RAM.
+
+\subsubsection{\textbf{Data Structures and Alignment}}
+To track memory, the system overlays a \texttt{BlockHeader} structure at the beginning of every allocated and free block. This header tracks the \textbf{size} of the block, its allocation status (\texttt{is\_free}), and a \textbf{pointer} to the next block in the linked list. 
+To ensure optimal performance and prevent hardware-level access violations (which can occur if data types are misaligned), the allocator enforces an \textbf{8-byte boundary alignment} using bitwise operations:
+\begin{equation}
+    \text{AlignedSize} = (\text{size} + 7) \ \& \ \sim7
+\end{equation}
+
+\subsubsection{\textbf{Allocation and Block Splitting}}
+When an allocation request is issued via \texttt{mem\_alloc()}, the algorithm traverses the linked list sequentially (\textbf{First-Fit}). Once a suitable free block is located, the allocator determines if the block is significantly larger than the requested size. If the remainder of the block exceeds the minimum necessary size to form a new block (header size plus minimum alignment), the allocator dynamically \textbf{splits} the block. It alters the current header to reflect the newly requested size and instantiates a new free block header immediately following the allocated space. This approach guarantees that memory waste (\textit{internal fragmentation}) is minimized.
+
+\subsubsection{\textbf{Deallocation and Forward Coalescing}}
+Memory deallocation via \texttt{mem\_free()} must handle \textit{external fragmentation}—the phenomenon where free memory is scattered in non-contiguous chunks. Upon freeing a pointer, the allocator verifies the pointer's bounds to prevent illegal memory operations. It then flips the block's status to free. Subsequently, it triggers a \textbf{forward-coalescing} routine. This routine scans the entire heap from the base pointer, actively merging any adjacent free blocks into single, larger contiguous blocks. This mechanism ensures that the system does not suffer from memory starvation over extended execution cycles.
+
+\subsection{File Systems}
+The \textbf{Virtual File System (VFS)} abstracts the raw memory arrays provided by the memory manager into a hierarchical file structure. To maximize performance and simplify the initial implementation, the VFS stores all metadata and file contents entirely in \textbf{volatile RAM}.
+
+\subsubsection{\textbf{VFS Metadata}}
+The VFS maintains an array of metadata structures, capping the system at 32 concurrent files to bound execution time during lookups. Each \texttt{File} struct contains:
+\begin{itemize}
+    \item A fixed-length character array for the \textbf{filename}.
+    \item An integer defining the \textbf{byte size}.
+    \item A boolean flag indicating if the slot is \textbf{in use}.
+    \item A character pointer directing to the \textbf{file's payload} in the heap.
+\end{itemize}
+
+\subsubsection{\textbf{Dynamic Payload Management}}
+Optimal integration with the \textbf{Memory Management} unit ensures that file data dynamically expands or contracts as necessary. When a file is written to using \texttt{vfs\_write()}, the system calculates the string length, allocates the precise amount of required bytes using \texttt{mem\_alloc()}, and safely copies the buffer using custom \texttt{str\_copy()} routines. If a file is overwritten or deleted, its previous data block is immediately yielded back to the heap via \texttt{mem\_free()}. The VFS natively supports common UNIX operations such as \texttt{ls}, \texttt{touch}, \texttt{write}, \texttt{read}, and \texttt{rm}, effectively virtualizing block storage directly within the OS's heap boundaries.
+
+\subsection{Process Management}
+In a standard multi-core environment, the OS relies on hardware timers and interrupts to achieve true preemption. Due to the single-threaded nature of the Mini-OS simulator environment running in user-space, true hardware preemption is absent. Instead, an optimal \textbf{cooperative multitasking} approach is adopted to simulate background processing.
+
+\subsubsection{\textbf{Cooperative Scheduling}}
+The \textbf{Scheduler module} (\texttt{scheduler.c}) leverages time-based tracking. A fixed-size array of \texttt{Task} structures is maintained, containing \textbf{task IDs}, \textbf{active flags}, \textbf{start times}, and \textbf{elapsed execution times}. 
+Upon invoking a background task via the shell command \texttt{starttask}, the scheduler assigns an auto-incrementing \textbf{Process ID (PID)} and records the execution start time utilizing the standard epoch timestamp. 
+
+To simulate execution progression, the main execution loop in \texttt{shell.c} continuously polls a \texttt{sched\_update()} function in a tight loop between keystrokes. This function calculates the delta between the current time and the task's start time, updating the \texttt{elapsed\_time} attribute. This methodology mimics the polling nature of early embedded OS schedulers. It provides immediate task lifecycle visibility to the user without incurring the massive computational overhead of user-space context switching using \texttt{setjmp()} and \texttt{longjmp()}.
+
+\subsection{I/O Management}
+Input/Output management dictates the user experience. In Mini-OS, this is divided into two highly optimized subsystems: \textbf{Screen Rendering} and \textbf{Keyboard Handling}.
+
+\subsubsection{\textbf{Flicker-Free Screen Rendering}}
+Traditional terminal output (using standard \texttt{printf()} or \texttt{clear} commands) suffers from severe screen tearing and UI flicker, particularly when an interface is redrawn rapidly. Mini-OS mitigates this using a custom \textbf{double-buffered ANSI rendering engine} (\texttt{screen.c}). 
+The OS maintains two identical 2D arrays (a \textbf{front buffer} representing the current terminal state, and a \textbf{back buffer} where new elements are drawn). The core \texttt{scr\_refresh()} routine performs a logical spatial diff between these two buffers. It generates \textbf{ANSI escape sequences} exclusively for the coordinate pairs that have changed. These sequences are batched into a contiguous write buffer and flushed to standard output in a single system call. This technique guarantees perfectly smooth UI updates, operating at a high framerate.
+
+\subsubsection{\textbf{Asynchronous Keyboard Handling}}
+To achieve a responsive shell, input is managed non-blockingly (\texttt{keyboard.c}) by interfacing with POSIX \texttt{termios.h} and \texttt{fcntl.h}. By transitioning the host terminal into \textbf{raw mode} and disabling standard \texttt{ICANON} (canonical line buffering) and \texttt{ECHO} flags, the OS gains total control over standard input. 
+This allows the OS to natively intercept complex multi-byte ANSI sequences (such as arrow keys, which manifest as \texttt{ESC [ A}), mapping them to custom system macros. Furthermore, the OS manages its own line-buffering, actively erasing characters from the screen buffer when backspace is intercepted, thus simulating terminal driver functionality.
+
+\subsection{Security, Error Handling, and Halt}
+Security in Mini-OS focuses on \textbf{memory safety}, \textbf{graceful error containment}, and \textbf{secure execution halting}. A robust OS cannot afford to crash due to user error; it must isolate faults and continue execution.
+
+\subsubsection{\textbf{Memory Safety and Bounds Checking}}
+A primary attack vector in C programming is the \textit{buffer overflow} and the \textit{double-free vulnerability}. The custom string module (\texttt{string.c}) enforces strict bounds checking on operations like \texttt{str\_copy()} and \texttt{str\_concat()}. Furthermore, the allocator aggressively verifies pointer bounds before executing a \texttt{mem\_free()} command. If an invalid or already-freed pointer is passed, the allocator silently ignores the request, neutralizing bugs that would otherwise trigger a fatal segmentation fault in the host environment.
+
+\subsubsection{\textbf{Graceful Error Containment}}
+Instead of utilizing fatal aborts or throwing unhandled exceptions, subsystem failures return \textbf{predefined integer status codes}. For instance, if a user attempts division by zero within the Math module's \texttt{m\_div()}, the operation is intercepted and an error code is propagated up the call stack. Similarly, out-of-memory constraints within the VFS are detected early. The Shell interprets these codes and outputs human-readable warnings to the user, ensuring the REPL loop remains intact and the system remains stable.
+
+\subsubsection{\textbf{Halt Mechanism}}
+An orchestrated teardown sequence is critical for environmental security. When the user invokes the \texttt{exit} command, the Shell safely breaks the core execution loop. Because the OS manipulated the host terminal into raw mode, failing to restore it would leave the host terminal unusable. To prevent this, the \texttt{kb\_restore()} function is mapped to the standard C \texttt{atexit()} handler. This guarantees that regardless of how the \texttt{main()} function terminates, the host terminal is securely restored to standard canonical mode before the simulation yields control back to the underlying operating system.
+
+\section{Future Scope}
+While Mini-OS successfully demonstrates fundamental OS principles and optimal simulation techniques, future iterations possess significant room for expansion to bridge the gap between simulation and bare-metal execution:
+\begin{itemize}
+    \item \textbf{True Preemption and Context Switching:} Transitioning the cooperative scheduler to a preemptive model. This would involve utilizing POSIX threads (\texttt{pthreads}) or UNIX signal-based hardware timers (\texttt{SIGALRM}) to interrupt the main thread, saving the CPU registers into a \textbf{Process Control Block (PCB)}, and yielding execution to background tasks.
+    \item \textbf{Persistent File System Serialization:} Extending the volatile VFS to serialize metadata and file blocks to a persistent host disk file (e.g., a \texttt{.img} file). This would emulate actual block storage devices, allowing for the implementation of \textbf{inodes}, \textbf{superblocks}, and \textbf{journaling} akin to the Ext4 filesystem.
+    \item \textbf{Paging and Virtual Memory:} Replacing the linear First-Fit heap allocator with a full paging system. This expansion would involve simulating a \textbf{Memory Management Unit (MMU)}, mapping virtual addresses to physical pages, and implementing page replacement algorithms (such as \textbf{LRU} or \textbf{Clock}) to simulate swapping mechanics.
+\end{itemize}
+
+\section{Conclusion}
+The design, implementation, and rigorous testing of \textbf{Mini-OS} effectively bridges the theoretical concepts of operating system architecture with practical, low-level C programming application. By deliberately forcing the reimplementation of standard library functionalities, the simulator successfully achieves optimal memory utilization, robust I/O abstractions, and resilient error-handling paradigms within a monolithic framework. The integration of a custom virtual file system, a cooperative task scheduler, and a double-buffered rendering engine demonstrates a high degree of technical mastery over system-level interactions. Ultimately, Mini-OS serves as a powerful foundational blueprint for understanding the complex orchestrations that drive modern computing.
+
+\begin{thebibliography}{00}
+\bibitem{silberschatz}
+A. Silberschatz, P. B. Galvin, and G. Gagne, \emph{Operating System Concepts}, 10th ed. Hoboken, NJ, USA: Wiley, 2018.
+\bibitem{tanenbaum}
+A. S. Tanenbaum and H. Bos, \emph{Modern Operating Systems}, 4th ed. Pearson, 2014.
+\bibitem{love}
+R. Love, \emph{Linux Kernel Development}, 3rd ed. Addison-Wesley Professional, 2010.
+\bibitem{stallings}
+W. Stallings, \emph{Operating Systems: Internals and Design Principles}, 9th ed. Pearson, 2017.
+\bibitem{kerrisk}
+M. Kerrisk, \emph{The Linux Programming Interface: A Linux and UNIX System Programming Handbook}, No Starch Press, 2010.
+\bibitem{bovet}
+D. P. Bovet and M. Cesati, \emph{Understanding the Linux Kernel}, 3rd ed. O'Reilly Media, 2005.
+\end{thebibliography}
+
+\end{document}
