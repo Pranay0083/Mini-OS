@@ -24,6 +24,8 @@
 #include "../include/keyboard.h"
 #include "../include/shell.h"
 #include "../include/screen.h"
+#include "../include/vfs.h"
+#include "../include/scheduler.h"
 
 /* ── Default Boot Configuration ───────────────────────────────────────── */
 
@@ -49,18 +51,12 @@ int main(void)
     /* ── Step 3: Initialize screen output ──────────────────────────── */
     scr_init(DEFAULT_SCR_WIDTH, DEFAULT_SCR_HEIGHT);
 
-    /* ── Step 4: Initialize shell subsystem ────────────────────────── */
+    /* ── Step 4: Initialize subsystems ─────────────────────────────── */
+    vfs_init();   
+    sched_init(); 
     shell_init();
 
     /* ── Step 5: Run the shell REPL loop ───────────────────────────── */
-    /*
-     * shell_run() contains the core loop:
-     *   print("> ")      → screen.c
-     *   readLine()       → keyboard.c
-     *   parse()          → string.c (str_split)
-     *   execute()        → shell.c (shell_execute)
-     *   loop again
-     */
     shell_run();
 
     /* ── Step 6: Cleanup and exit ──────────────────────────────────── */
